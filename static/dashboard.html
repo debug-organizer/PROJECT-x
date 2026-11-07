@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NER Landslide Early Warning & GIS Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      height: 100%;
+      overflow-y: scroll; /* Always show vertical scrollbar */
+    }
+    .content {
+      position: relative;
+      z-index: 1;
+      color: rgb(255, 255, 255);
+      text-align: center;
+      padding-top: 20%;
+      font-family: sans-serif;
+    }
+    :root {
+      --bg-dark: #0f172a;
+      --panel-bg: rgba(30, 41, 59, 0.85);
+      --panel-border: rgba(255, 255, 255, 0.1);
+      --accent-red: #ef4444;
+      --accent-orange: #f97316;
+      --accent-yellow: #eab308;
+      --accent-green: #22c55e;
+      --accent-blue: #3b82f6;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+    body { background-color: var(--bg-dark); color: var(--text-main); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+    header { height: 60px; background: rgba(15, 23, 42, 0.95); border-bottom: 1px solid var(--panel-border); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 1000; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand i { font-size: 1.5rem; color: var(--accent-red); }
+    .brand h1 { font-size: 1.1rem; font-weight: 600; }
+    .brand span { font-size: 0.75rem; background: #334155; padding: 2px 8px; border-radius: 4px; color: var(--accent-blue); text-transform: uppercase; }
+    .nav-controls { display: flex; align-items: center; gap: 15px; }
+    .status-badge { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; background: rgba(34, 197, 94, 0.1); color: var(--accent-green); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(34, 197, 94, 0.2); }
+    .status-dot { width: 8px; height: 8px; background-color: var(--accent-green); border-radius: 50%; box-shadow: 0 0 8px var(--accent-green); }
+    select, button { background: #1e293b; color: var(--text-main); border: 1px solid var(--panel-border); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    button.btn-alert { background: var(--accent-red); border: none; font-weight: 600; }
+    .dashboard-container { display: grid; grid-template-columns: 320px 1fr 340px; height: calc(100vh - 60px); position: relative; }
+    .sidebar-left, .sidebar-right { background: var(--panel-bg); backdrop-filter: blur(10px); padding: 15px; display: flex; flex-direction: column; gap: 15px; z-index: 500; overflow-y: auto; }
+    .sidebar-left { border-right: 1px solid var(--panel-border); }
+    .sidebar-right { border-left: 1px solid var(--panel-border); }
+    .card { background: rgba(15, 23, 42, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 12px; }
+    .card-title { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric-box { background: rgba(30, 41, 59, 0.5); padding: 10px; border-radius: 6px; border-left: 3px solid var(--accent-blue); }
+    .metric-box.danger { border-color: var(--accent-red); }
+    .metric-box.warning { border-color: var(--accent-orange); }
+    .metric-val { font-size: 1.2rem; font-weight: bold; }
+    .metric-lbl { font-size: 0.7rem; color: var(--text-muted); }
+    .layer-toggle { display: flex; flex-direction: column; gap: 8px; }
+    .toggle-item { display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; }
+    .map-container { position: relative; width: 100%; height: 100%; }
+    #map { width: 100%; height: 100%; }
+    .map-legend { position: absolute; bottom: 20px; left: 20px; background: var(--panel-bg); backdrop-filter: blur(10px); border: 1px solid var(--panel-border); padding: 10px 15px; border-radius: 8px; z-index: 1000; font-size: 0.8rem; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .legend-color { width: 12px; height: 12px; border-radius: 3px; }
+    .feed-list { display: flex; flex-direction: column; gap: 10px; max-height: 250px; overflow-y: auto; }
+    .feed-item { background: rgba(15, 23, 42, 0.6); border-left: 4px solid var(--accent-orange); padding: 8px 10px; border-radius: 4px; font-size: 0.8rem; }
+    .feed-item.high { border-color: var(--accent-red); }
+    .feed-header { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 3px; }
+    .feed-time { font-size: 0.7rem; color: var(--text-muted); }
+    .report-form { display: flex; flex-direction: column; gap: 8px; }
+    .report-form input, .report-form select, .report-form textarea { width: 100%; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--panel-border); color: var(--text-main); padding: 8px; border-radius: 4px; font-size: 0.8rem; }
+    .report-form button { background: var(--accent-blue); border: none; font-weight: 600; margin-top: 5px; }
+    .offline-banner { display: none; background: var(--accent-orange); color: #000; text-align: center; font-size: 0.75rem; padding: 2px 0; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div id="offline-banner" class="offline-banner"><i class="fa-solid fa-wifi"></i> Low Network Mode Enabled</div>
+
+  <header>
+    <div class="brand">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <h1>NER RiskWatch <span>AI early warning</span></h1>
+    </div>
+    <div class="nav-controls">
+      <div class="status-badge"><div class="status-dot"></div> Live Python Connected</div>
+      <select id="langSelect">
+        <option value="en">English</option>
+        <option value="as">অসমীয়া (Assamese)</option>
+        <option value="bn">বাংলা (Bengali)</option>
+        <option value="hi">हिंदी (Hindi)</option>
+      </select>
+      <button class="btn-alert" onclick="triggerBroadcast()"><i class="fa-solid fa-bullhorn"></i> Emergency Alert</button>
+    </div>
+  </header>
+
+  <div class="dashboard-container">
+    <div class="sidebar-left">
+      <div class="card">
+        <div class="card-title">IMD Weather & Sensor Feeds <i class="fa-solid fa-cloud-showers-heavy"></i></div>
+        <div class="metric-grid">
+          <div class="metric-box danger"><div class="metric-val" id="valRain">184 mm</div><div class="metric-lbl">24h Rainfall</div></div>
+          <div class="metric-box warning"><div class="metric-val" id="valSoil">82 %</div><div class="metric-lbl">Soil Moisture</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">GIS Layers <i class="fa-solid fa-layer-group"></i></div>
+        <div class="layer-toggle">
+          <label class="toggle-item"><span><i class="fa-solid fa-fire text-danger"></i> AI Risk Heatmap</span><input type="checkbox" id="layerHeatmap" checked onchange="toggleLayers()"></label>
+          <label class="toggle-item"><span><i class="fa-solid fa-camera"></i> Citizen Reports</span><input type="checkbox" id="layerReports" checked onchange="toggleLayers()"></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">AI Predictive Model <i class="fa-solid fa-brain"></i></div>
+        <div id="aiPredictionBox" style="font-size: 0.8rem; color: #fca5a5; background: rgba(239, 68, 68, 0.2); padding: 8px; border-radius: 4px;">
+          Evaluating real-time metrics...
+        </div>
+      </div>
+    </div>
+
+    <div class="map-container">
+      <div id="map"></div>
+      <div class="map-legend">
+        <strong>Risk Severity Level</strong>
+        <div class="legend-item"><div class="legend-color" style="background: var(--accent-red);"></div> Severe / Critical</div>
+        <div class="legend-item"><div class="legend-color" style="background: var(--accent-orange);"></div> Moderate / Warning</div>
+      </div>
+    </div>
+
+    <div class="sidebar-right">
+      <div class="card">
+        <div class="card-title">Active Field Feed <i class="fa-solid fa-rss"></i></div>
+        <div class="feed-list" id="feedList"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Submit Field Report <i class="fa-solid fa-upload"></i></div>
+        <form class="report-form" id="reportForm" onsubmit="handleFormSubmit(event)">
+          <input type="text" id="reporterLocation" placeholder="Incident Location / Landmark" required>
+          <select id="reportType" required>
+            <option value="">Select Incident Type</option>
+            <option value="Landslide">Landslide / Mudslide</option>
+            <option value="Road Blockage">Road Blockage</option>
+            <option value="Soil Crack">Visible Soil Crack</option>
+          </select>
+          <textarea id="reportDesc" rows="2" placeholder="Description..."></textarea>
+          <input type="file" id="reportFile" accept="image/*">
+          <button type="submit"><i class="fa-solid fa-paper-plane"></i> Submit to Backend</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([25.5788, 91.8933], 8);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Esri World Imagery'
+    }).addTo(map);
+
+    const heatmapGroup = L.layerGroup().addTo(map);
+    const reportsGroup = L.layerGroup().addTo(map);
+
+    function toggleLayers() {
+      if(document.getElementById('layerHeatmap').checked) map.addLayer(heatmapGroup); else map.removeLayer(heatmapGroup);
+      if(document.getElementById('layerReports').checked) map.addLayer(reportsGroup); else map.removeLayer(reportsGroup);
+    }
+
+    async function loadGISData() {
+      try {
+        const res = await fetch('/api/gis-overview');
+        const data = await res.json();
+        data.risk_polygons.forEach(p => {
+          L.polygon(p.coordinates, {
+            color: p.risk_level === 'CRITICAL' ? '#ef4444' : '#f97316',
+            fillColor: p.risk_level === 'CRITICAL' ? '#ef4444' : '#f97316',
+            fillOpacity: 0.45
+          }).bindPopup(`<b>${p.district}</b><br>Probability: ${p.probability}%`).addTo(heatmapGroup);
+        });
+      } catch (err) { console.error(err); }
+    }
+
+    async function evaluateAI() {
+      try {
+        const res = await fetch('/api/predict-risk', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ rainfall_24h_mm: 184, soil_moisture_pct: 82, slope_angle_deg: 38 })
+        });
+        const pred = await res.json();
+        document.getElementById('aiPredictionBox').innerHTML = `
+          <strong>Risk Level: ${pred.risk_level} (${pred.landslide_probability_pct}%)</strong><br>
+          ${pred.recommended_action}
+        `;
+      } catch (err) { console.error(err); }
+    }
+
+    async function loadReports() {
+      try {
+        const res = await fetch('/api/reports');
+        const reports = await res.json();
+        const feedList = document.getElementById('feedList');
+        feedList.innerHTML = '';
+        reportsGroup.clearLayers();
+
+        reports.forEach(r => {
+          const item = document.createElement('div');
+          item.className = 'feed-item high';
+          item.innerHTML = `<div class="feed-header"><span>${r.location_name}</span></div><div>${r.incident_type}: ${r.description || ''}</div>`;
+          feedList.appendChild(item);
+
+          L.marker([r.latitude, r.longitude]).bindPopup(`
+            <b>${r.incident_type}</b><br>${r.location_name}<br>
+            ${r.image_path ? `<img src="${r.image_path}" width="150"/>` : ''}
+          `).addTo(reportsGroup);
+        });
+      } catch (err) { console.error(err); }
+    }
+
+    async function handleFormSubmit(e) {
+      e.preventDefault();
+      const center = map.getCenter();
+      const formData = new FormData();
+      formData.append('location_name', document.getElementById('reporterLocation').value);
+      formData.append('incident_type', document.getElementById('reportType').value);
+      formData.append('description', document.getElementById('reportDesc').value);
+      formData.append('latitude', center.lat);
+      formData.append('longitude', center.lng);
+      
+      const file = document.getElementById('reportFile').files[0];
+      if(file) formData.append('file', file);
+
+      await fetch('/api/reports', { method: 'POST', body: formData });
+      document.getElementById('reportForm').reset();
+      loadReports();
+    }
+
+    async function triggerBroadcast() {
+      const lang = document.getElementById('langSelect').value;
+      const res = await fetch('/api/broadcast', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ district: "East Khasi Hills", language: lang })
+      });
+      const data = await res.json();
+      alert(`[${data.status}] ${data.payload}`);
+    }
+
+    window.onload = () => {
+      loadGISData();
+      evaluateAI();
+      loadReports();
+    };
+  </script>
+</body>
+</html>
